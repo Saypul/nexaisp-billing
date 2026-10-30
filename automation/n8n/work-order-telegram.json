@@ -1,0 +1,94 @@
+{
+  "id": "nexaisp-work-order-telegram",
+  "name": "NexaISP Work Order to Telegram",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "nexaisp-work-order",
+        "authentication": "headerAuth",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "nexaisp-work-order-webhook",
+      "name": "Work Order Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        260,
+        300
+      ],
+      "webhookId": "nexaisp-work-order",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "nexaisp-wo-header-auth",
+          "name": "NexaISP WO Webhook Header"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "sendMessage",
+        "chatId": "={{ $json.body.chat_id }}",
+        "text": "={{ $json.body.text }}",
+        "additionalFields": {},
+        "replyMarkup": "={{ $json.body.keyboard ? 'inlineKeyboard' : 'none' }}",
+        "inlineKeyboard": {
+          "rows": [
+            {
+              "row": {
+                "buttons": [
+                  {
+                    "text": "={{ $json.body.keyboard.rows[0].row.buttons[0].text }}",
+                    "additionalFields": {
+                      "callback_data": "={{ $json.body.keyboard.rows[0].row.buttons[0].additionalFields.callback_data }}"
+                    }
+                  },
+                  {
+                    "text": "={{ $json.body.keyboard.rows[0].row.buttons[1].text }}",
+                    "additionalFields": {
+                      "callback_data": "={{ $json.body.keyboard.rows[0].row.buttons[1].additionalFields.callback_data }}"
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "id": "nexaisp-telegram-send",
+      "name": "Send Work Order",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        530,
+        300
+      ],
+      "credentials": {
+        "telegramApi": {
+          "id": "nexaisp-telegram-api",
+          "name": "NexaISP WO Telegram Bot"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Work Order Webhook": {
+      "main": [
+        [
+          {
+            "node": "Send Work Order",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "active": false,
+  "pinData": {},
+  "tags": []
+}

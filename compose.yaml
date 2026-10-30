@@ -1,0 +1,85 @@
+name: nexaisp-billing
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-nexaisp}
+      POSTGRES_USER: ${POSTGRES_USER:-nexaisp}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Run ./setup.sh first}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 15
+    networks: [internal]
+
+  backend:
+    build: ./backend
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-nexaisp}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-nexaisp}
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - work_order_photos:/app/uploads
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+    networks: [internal]
+
+  telegram_worker:
+    image: nexaisp-billing-backend:latest
+    command: ["python", "-m", "app.telegram_worker"]
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-nexaisp}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-nexaisp}
+    depends_on:
+      backend:
+        condition: service_healthy
+    volumes:
+      - work_order_photos:/app/uploads
+    networks: [internal]
+
+  n8n:
+    image: n8nio/n8n:2.42.6
+    restart: unless-stopped
+    ports:
+      - "0.0.0.0:${N8N_PORT:-5679}:5678"
+    environment:
+      N8N_HOST: localhost
+      N8N_PORT: 5678
+      N8N_PROTOCOL: http
+      N8N_SECURE_COOKIE: "false"
+      N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS: "true"
+      N8N_DIAGNOSTICS_ENABLED: "false"
+      GENERIC_TIMEZONE: Asia/Jakarta
+      TZ: Asia/Jakarta
+    volumes:
+      - n8n_data:/home/node/.n8n
+    networks: [internal]
+
+  frontend:
+    build: ./frontend
+    restart: unless-stopped
+    ports:
+      - "${BIND_IP:-127.0.0.1}:${WEB_PORT:-3100}:8080"
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks: [internal]
+
+volumes:
+  postgres_data:
+  n8n_data:
+  work_order_photos:
+networks:
+  internal:
+    driver: bridge
