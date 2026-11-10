@@ -14,7 +14,7 @@ from . import network
 from .database import get_db
 from .mikrotik import RouterOSError, RouterOSTrap
 from .models import Router, ServicePlan, Subscription, User
-from .schemas import PppProfileIn, PppSecretIn
+from .schemas import IpPoolIn, PppProfileIn, PppSecretIn
 from .security import admin_only, admin_or_noc
 
 api = APIRouter(prefix='/api/routers/{router_id}')
@@ -23,7 +23,8 @@ PROFILE_FIELDS = {'local_address': 'local-address', 'remote_address': 'remote-ad
                   'dns_server': 'dns-server', 'only_one': 'only-one', 'comment': 'comment'}
 SECRET_FIELDS = {'service': 'service', 'profile': 'profile', 'local_address': 'local-address',
                  'remote_address': 'remote-address', 'comment': 'comment'}
-SECRET_PROPLIST = '.id,name,service,profile,local-address,remote-address,disabled,comment,last-logged-out,caller-id'
+POOL_FIELDS = {'name': 'name', 'ranges': 'ranges', 'next_pool': 'next-pool', 'comment': 'comment'}
+SECRET_PROPLIST ='.id,name,service,profile,local-address,remote-address,disabled,comment,last-logged-out,caller-id'
 
 
 def get_router(db: Session, router_id: int) -> Router:
@@ -107,17 +108,118 @@ def suggest_gateway(ranges: str | None, interface_addresses: list[str]) -> tuple
     return None, None
 
 
+def pool_intervals(ranges: str | None) -> list[tuple[int, int, int]]:
+    """Ranges pool sebagai (versi IP, awal, akhir) untuk cek tumpang tindih."""
+    out = []
+    for part in (ranges or '').split(','):
+        part = part.strip()
+        try:
+            if '/' in part:
+                net = ipaddress.ip_network(part, strict=False)
+                out.append((net.version, int(net.network_address), int(net.broadcast_address)))
+            elif part:
+                start, _, end = part.partition('-')
+                first = ipaddress.ip_address(start)
+                out.append((first.version, int(first), int(ipaddress.ip_address(end)) if end else int(first)))
+        except ValueError:
+            continue
+    return out
+
+
+def pool_references(c) -> dict[str, list[str]]:
+    """Nama pool → daftar pemakai di router: PPP profile, DHCP server, dan next-pool pool lain."""
+    refs = {}
+    for p in c.talk(['/ppp/profile/print', '=.proplist=name,local-address,remote-address']):
+        for attr in ('remote-address', 'local-address'):
+            if p.get(attr):
+                refs.setdefault(p[attr], []).append('PPP profile ' + p.get('name', ''))
+    for d in c.talk(['/ip/dhcp-server/print', '=.proplist=name,address-pool']):
+        if d.get('address-pool'):
+            refs.setdefault(d['address-pool'], []).append('DHCP server ' + d.get('name', ''))
+    for p in c.talk(['/ip/pool/print', '=.proplist=name,next-pool']):
+        if p.get('next-pool'):
+            refs.setdefault(p['next-pool'], []).append('Next pool dari ' + p.get('name', ''))
+    return {name: sorted(set(users)) for name, users in refs.items()}
+
+
+def check_pool(c, data: IpPoolIn, pool_id: str | None = None):
+    pools = c.talk(['/ip/pool/print', '=.proplist=.id,name,ranges'])
+    if data.next_pool:
+        if data.next_pool == data.name:
+            raise HTTPException(422, 'Next pool tidak boleh pool itu sendiri.')
+        if not any(p.get('name') == data.next_pool for p in pools):
+            raise HTTPException(422, f'Next pool {data.next_pool} tidak ada di router ini.')
+    mine = pool_intervals(data.ranges)
+    for p in pools:
+        if p.get('.id') == pool_id:
+            continue
+        theirs = pool_intervals(p.get('ranges'))
+        if any(v1 == v2 and start1 <= end2 and start2 <= end1 for v1, start1, end1 in mine for v2, start2, end2 in theirs):
+            raise HTTPException(409, f"Range bertumpang tindih dengan pool {p.get('name')} ({p.get('ranges')}).")
+
+
 @api.get('/pools')
 def list_pools(router_id: int, db: Session = Depends(get_db), _: User = Depends(admin_or_noc)):
     def load(c):
-        return c.talk(['/ip/pool/print', '=.proplist=name,ranges']), c.talk(['/ip/address/print', '=.proplist=address,disabled'])
-    pools, addresses = router_call(get_router(db, router_id), load)
+        return (c.talk(['/ip/pool/print', '=.proplist=.id,name,ranges,next-pool,comment']), c.talk(['/ip/address/print', '=.proplist=address,disabled']),
+                c.talk(['/ip/pool/used/print', '=.proplist=pool']), pool_references(c))
+    pools, addresses, used, refs = router_call(get_router(db, router_id), load)
     active = [a.get('address') for a in addresses if a.get('address') and a.get('disabled') != 'true']
+    counts = {}
+    for u in used:
+        counts[u.get('pool')] = counts.get(u.get('pool'), 0) + 1
     rows = []
     for r in pools:
         gateway, source = suggest_gateway(r.get('ranges'), active)
-        rows.append({'name': r.get('name'), 'ranges': r.get('ranges'), 'gateway': gateway, 'gateway_source': source})
+        size = sum(b - a + 1 for _, a, b in pool_intervals(r.get('ranges')))
+        rows.append({'id': r.get('.id'), 'name': r.get('name'), 'ranges': r.get('ranges'), 'next_pool': r.get('next-pool'), 'comment': r.get('comment'),
+                     'size': size, 'used': counts.get(r.get('name'), 0), 'used_by': refs.get(r.get('name'), []),
+                     'gateway': gateway, 'gateway_source': source})
     return rows
+
+
+@api.post('/pools', status_code=201)
+def create_pool(router_id: int, data: IpPoolIn, db: Session = Depends(get_db), user: User = Depends(admin_only)):
+    router = get_router(db, router_id)
+    def add(c):
+        check_pool(c, data)
+        write_attrs(c, '/ip/pool', None, data.model_dump(), POOL_FIELDS)
+    router_write(db, router, user, 'pool_create', f'IP pool {data.name} ({data.ranges})', add)
+    db.commit()
+    return {'ok': True}
+
+
+@api.put('/pools/{pool_id}')
+def update_pool(router_id: int, pool_id: str, data: IpPoolIn, db: Session = Depends(get_db), user: User = Depends(admin_only)):
+    router = get_router(db, router_id)
+    def update(c):
+        current = find(c, '/ip/pool', pool_id)
+        if current.get('name') != data.name:
+            users = pool_references(c).get(current.get('name'))
+            if users:
+                raise HTTPException(409, f"Pool dipakai {', '.join(users)}. Ubah referensinya dulu sebelum mengganti nama.")
+        check_pool(c, data, pool_id)
+        write_attrs(c, '/ip/pool', pool_id, data.model_dump(), POOL_FIELDS, current)
+    router_write(db, router, user, 'pool_update', f'IP pool {data.name} ({data.ranges})', update)
+    db.commit()
+    return {'ok': True}
+
+
+@api.delete('/pools/{pool_id}', status_code=204)
+def delete_pool(router_id: int, pool_id: str, db: Session = Depends(get_db), user: User = Depends(admin_only)):
+    router = get_router(db, router_id)
+    def remove(c):
+        current = find(c, '/ip/pool', pool_id)
+        name = current.get('name')
+        users = pool_references(c).get(name)
+        if users:
+            raise HTTPException(409, f"Pool dipakai {', '.join(users)}.")
+        if c.query('/ip/pool/used', pool=name):
+            raise HTTPException(409, 'Pool masih punya IP yang sedang dipakai klien. Putuskan sesinya dulu.')
+        c.run('/ip/pool/remove', **{'.id': pool_id})
+        return name
+    router_write(db, router, user, 'pool_delete', lambda name: f'IP pool {name}', remove)
+    db.commit()
 
 
 # --- PPP profiles ---------------------------------------------------------

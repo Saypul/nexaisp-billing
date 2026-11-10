@@ -36,6 +36,7 @@ class FakeRouter:
                          {'.id': '*P2', 'name': 'isolir'}]
         self.pools = [{'.id': '*L1', 'name': 'pool-pppoe', 'ranges': '10.20.0.2-10.20.255.254'},
                       {'.id': '*L2', 'name': 'pool-bisnis', 'ranges': '172.16.5.10-172.16.5.200'}]
+        self.pool_used, self.dhcp_servers = [], []
         self.addresses = [{'.id': '*I1', 'address': '172.16.5.1/24', 'interface': 'vlan-bisnis', 'disabled': 'false'}]
         self.next_id = 1
         router = self
@@ -105,15 +106,19 @@ class FakeRouter:
             return self.rows(self.addresses, query) + [['!done']]
         if cmd == '/ip/pool/print':
             return self.rows(self.pools, query) + [['!done']]
-        for path, table in (('/ppp/profile', self.profiles), ('/ppp/secret', self.secrets)):
-            if cmd == path + '/add' and path == '/ppp/profile':
+        if cmd == '/ip/pool/used/print':
+            return self.rows(self.pool_used, query) + [['!done']]
+        if cmd == '/ip/dhcp-server/print':
+            return self.rows(self.dhcp_servers, query) + [['!done']]
+        for path, table in (('/ppp/profile', self.profiles), ('/ip/pool', self.pools), ('/ppp/secret', self.secrets)):
+            if cmd == path + '/add' and path != '/ppp/secret':
                 if any(p['name'] == attrs['name'] for p in table):
-                    return [['!trap', '=message=failure: profile with the same name already exists'], ['!done']]
+                    return [['!trap', '=message=failure: item with the same name already exists'], ['!done']]
                 item = {'.id': f'*{self.next_id}', **attrs}
                 self.next_id += 1
                 table.append(item)
                 return [['!done', '=ret=' + item['.id']]]
-            if cmd == path + '/set' and path == '/ppp/profile':
+            if cmd == path + '/set' and path != '/ppp/secret':
                 next(p for p in table if p['.id'] == attrs['.id']).update({k: v for k, v in attrs.items() if k != '.id'})
                 return [['!done']]
             if cmd == path + '/unset':

@@ -244,6 +244,43 @@ def test_ppp_profile_management(fake):
         assert not any(p['name'] == 'sementara' for p in fake.profiles)
 
 
+def test_ip_pool_management(fake):
+    with TestClient(app) as client:
+        h = admin(client)
+        router = add_router(client, h, fake.port, 'BRAS-POOL')
+        base = f"/api/routers/{router['id']}"
+        created = client.post(base + '/pools', headers=h, json={'name': 'pool-ftth', 'ranges': ' 10.30.0.2-10.30.0.254 , 10.31.0.0/30', 'comment': 'FTTH'})
+        assert created.status_code == 201, created.text
+        pool = next(p for p in fake.pools if p['name'] == 'pool-ftth')
+        assert pool['ranges'] == '10.30.0.2-10.30.0.254,10.31.0.0/30' and pool['comment'] == 'FTTH'
+        rows = {p['name']: p for p in client.get(base + '/pools', headers=h).json()}
+        assert rows['pool-ftth']['size'] == 253 + 4 and rows['pool-ftth']['used'] == 0
+        # Validasi: format salah, tumpang tindih, next-pool tidak ada, duplikat nama.
+        assert client.post(base + '/pools', headers=h, json={'name': 'x', 'ranges': '10.0.0.9-10.0.0.1'}).status_code == 422
+        assert client.post(base + '/pools', headers=h, json={'name': 'x', 'ranges': '10.0.0.1;/system reboot'}).status_code == 422
+        assert client.post(base + '/pools', headers=h, json={'name': 'x', 'ranges': '10.30.0.100-10.30.1.10'}).status_code == 409
+        assert client.post(base + '/pools', headers=h, json={'name': 'x', 'ranges': '10.40.0.1-10.40.0.9', 'next_pool': 'tidak-ada'}).status_code == 422
+        assert client.post(base + '/pools', headers=h, json={'name': 'pool-ftth', 'ranges': '10.50.0.1-10.50.0.9'}).status_code == 422
+        # Edit: ranges sendiri tidak dianggap tumpang tindih; next-pool dikosongkan memakai unset.
+        pid = rows['pool-ftth']['id']
+        assert client.put(f'{base}/pools/{pid}', headers=h, json={'name': 'pool-ftth', 'ranges': '10.30.0.2-10.30.0.200', 'next_pool': 'pool-bisnis'}).status_code == 200
+        assert pool['next-pool'] == 'pool-bisnis'
+        assert client.put(f'{base}/pools/{pid}', headers=h, json={'name': 'pool-ftth', 'ranges': '10.30.0.2-10.30.0.200'}).status_code == 200
+        assert 'next-pool' not in pool and 'comment' not in pool
+        # Pool yang dipakai profile atau masih punya IP terpakai tidak bisa dihapus/diganti nama.
+        client.post(base + '/profiles', headers=h, json={'name': 'paket-ftth', 'remote_address': 'pool-ftth'})
+        assert client.get(base + '/pools', headers=h).json()[-1]['used_by'] == ['PPP profile paket-ftth']
+        assert client.put(f'{base}/pools/{pid}', headers=h, json={'name': 'ganti', 'ranges': '10.30.0.2-10.30.0.200'}).status_code == 409
+        assert client.delete(f'{base}/pools/{pid}', headers=h).status_code == 409
+        fake.pool_used.append({'.id': '*U1', 'pool': 'pool-bisnis', 'address': '172.16.5.10'})
+        assert client.delete(f'{base}/pools/*L2', headers=h).status_code == 409
+        assert client.delete(f'{base}/pools/*L1', headers=h).status_code == 204
+        assert not any(p['name'] == 'pool-pppoe' for p in fake.pools)
+        n = client.post('/api/users/noc', headers=h, json={'email': 'noc-pool@example.com', 'password': 'Nocpassword1'})
+        tok = client.post('/api/auth/login', json={'email': 'noc-pool@example.com', 'password': 'Nocpassword1'}).json()['access_token']
+        assert client.post(base + '/pools', headers={'Authorization': 'Bearer ' + tok}, json={'name': 'y', 'ranges': '10.60.0.1'}).status_code == 403
+
+
 def test_ppp_secret_management(fake):
     with TestClient(app) as client:
         h = admin(client)

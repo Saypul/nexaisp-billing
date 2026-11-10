@@ -444,3 +444,114 @@ def test_cdn_noc_group_routing_and_direct_ready():
             keyboard = work_order_keyboard(db.get(Ticket, vpn_ticket['id']))
             assert keyboard['rows'][0]['row']['buttons'][0]['additionalFields']['callback_data'] == f"wo:status:survey:{vpn_ticket['id']}"
 
+
+
+def test_password_policy():
+    from app.security import password_ok
+    assert password_ok('contoh12@#')
+    assert password_ok('Abcdefgh')
+    assert not password_ok('abcdefgh')
+    assert not password_ok('Ab1@')
+
+
+def test_customer_portal_flow():
+    import base64
+    png = base64.b64encode(b'\x89PNG\r\n\x1a\n' + b'0' * 64).decode()
+    with TestClient(app) as client:
+        h = {'Authorization': 'Bearer ' + client.post('/api/auth/login', json={'email': 'test@nexaisp.local', 'password': 'very-long-test-password'}).json()['access_token']}
+        cust = client.post('/api/customers', headers=h, json={'name': 'Budi Portal', 'kind': 'residential', 'phone': '0812'}).json()
+        other = client.post('/api/customers', headers=h, json={'name': 'Orang Lain', 'kind': 'residential'}).json()
+        assert cust['portal_enabled'] is False and 'portal_password_hash' not in cust
+        plan = client.post('/api/plans', headers=h, json={'name': 'FTTH 30M', 'category': 'FTTH', 'monthly_fee': 200000}).json()
+        ticket = client.post('/api/tickets', headers=h, json={'customer_id': cust['id'], 'initial_service': {'plan_id': plan['id'], 'billing_type': 'prepaid', 'invoice_mode': 'manual', 'start_date': '2027-01-01'}}).json()
+        assert activate_as_noc(client, h, ticket['id'], '2027-01-01').status_code == 200
+        client.post('/api/invoices/generate', headers=h, json={'period': '2027-01', 'due_date': '2027-01-20'})
+        invoice = next(i for i in client.get('/api/invoices', headers=h).json() if i['customer_id'] == cust['id'])
+
+        # Belum diaktifkan admin: login ditolak.
+        assert client.post('/api/portal/login', json={'customer_code': cust['code'], 'password': 'apa-saja1'}).status_code == 401
+        assert client.put(f"/api/customers/{cust['id']}/portal-access", headers=h, json={'password': 'lemah'}).status_code == 422
+        access = client.put(f"/api/customers/{cust['id']}/portal-access", headers=h, json={})
+        password = access.json()['password']
+        assert access.status_code == 200 and len(password) >= 8
+        assert any(c['portal_enabled'] for c in client.get('/api/customers', headers=h).json() if c['id'] == cust['id'])
+        assert client.post('/api/portal/login', json={'customer_code': cust['code'], 'password': 'salah123'}).status_code == 401
+        login = client.post('/api/portal/login', json={'customer_code': cust['code'], 'password': password})
+        assert login.status_code == 200
+        ch = {'Authorization': 'Bearer ' + login.json()['access_token']}
+
+        # Token pelanggan tidak berlaku di API admin, dan token admin tidak berlaku di portal.
+        assert client.get('/api/customers', headers=ch).status_code == 403
+        assert client.get('/api/invoices', headers=ch).status_code == 403
+        assert client.get('/api/portal/me', headers=h).status_code == 401
+
+        me = client.get('/api/portal/me', headers=ch).json()
+        assert me['code'] == cust['code'] and me['outstanding'] == invoice['total'] and me['services'][0]['plan_name'] == 'FTTH 30M'
+        invoices = client.get('/api/portal/invoices', headers=ch).json()
+        assert [i['id'] for i in invoices] == [invoice['id']]
+
+        # Laporan gangguan: hanya untuk layanan sendiri; admin menanggapi.
+        sub_id = me['services'][0]['id']
+        other_ticket = client.post('/api/tickets', headers=h, json={'customer_id': other['id'], 'initial_service': {'plan_id': plan['id'], 'start_date': '2027-01-01'}}).json()
+        assert client.post('/api/portal/complaints', headers=ch, json={'subscription_id': other_ticket['subscription_id'], 'category': 'slow', 'description': 'Lambat sekali'}).status_code == 404
+        made = client.post('/api/portal/complaints', headers=ch, json={'subscription_id': sub_id, 'category': 'no_internet', 'description': 'Lampu LOS merah sejak pagi'})
+        assert made.status_code == 201 and made.json()['code'].startswith('GG-')
+        listed = [c for c in client.get('/api/complaints', headers=h).json() if c['customer_id'] == cust['id']]
+        assert listed[0]['customer_name'] == 'Budi Portal'
+        assert client.put(f"/api/complaints/{listed[0]['id']}", headers=h, json={'status': 'resolved', 'reply': 'Kabel drop diganti'}).status_code == 200
+        mine = client.get('/api/portal/complaints', headers=ch).json()[0]
+        assert mine['status'] == 'resolved' and mine['reply'] == 'Kabel drop diganti' and mine['resolved_at']
+
+        # Bukti transfer: validasi file dan nominal, lalu admin verifikasi menjadi pembayaran.
+        bad = {'invoice_id': invoice['id'], 'amount': 1000, 'image_base64': base64.b64encode(b'<script>alert(1)</script>xx').decode()}
+        assert client.post('/api/portal/proofs', headers=ch, json=bad).status_code == 422
+        assert client.post('/api/portal/proofs', headers=ch, json={**bad, 'amount': invoice['total'] + 1, 'image_base64': png}).status_code == 422
+        partial = client.post('/api/portal/proofs', headers=ch, json={'invoice_id': invoice['id'], 'amount': 50000, 'sender_name': 'Budi', 'image_base64': 'data:image/png;base64,' + png})
+        assert partial.status_code == 201, partial.text
+        assert client.get(partial.json()['image_url'], headers=ch).status_code == 200
+        oh = {'Authorization': 'Bearer ' + client.post('/api/portal/login', json={'customer_code': other['code'], 'password': 'x'}).json().get('access_token', 'none')}
+        assert client.get(partial.json()['image_url'], headers=oh).status_code == 401
+        proofs = {p['id']: p for p in client.get('/api/payment-proofs', headers=h).json()}
+        pid = partial.json()['id']
+        assert proofs[pid]['status'] == 'pending' and client.get(proofs[pid]['image_url'], headers=h).status_code == 200
+        approved = client.post(f'/api/payment-proofs/{pid}/approve', headers=h, json={})
+        assert approved.status_code == 200 and approved.json()['remaining'] == invoice['total'] - 50000
+        assert client.post(f'/api/payment-proofs/{pid}/approve', headers=h, json={}).status_code == 409
+        rest = client.post('/api/portal/proofs', headers=ch, json={'invoice_id': invoice['id'], 'amount': invoice['total'] - 50000, 'image_base64': png}).json()
+        assert client.post(f"/api/payment-proofs/{rest['id']}/reject", headers=h, json={'note': 'Nominal tidak sesuai mutasi'}).status_code == 200
+        assert client.post(f"/api/payment-proofs/{rest['id']}/approve", headers=h, json={}).status_code == 409
+        statuses = {p['id']: p['status'] for p in client.get('/api/portal/proofs', headers=ch).json()}
+        assert statuses == {pid: 'approved', rest['id']: 'rejected'}
+        assert client.get('/api/portal/me', headers=ch).json()['outstanding'] == invoice['total'] - 50000
+
+        # Ganti password mencabut sesi lama; admin bisa mencabut akses.
+        changed = client.put('/api/portal/password', headers=ch, json={'current_password': password, 'new_password': 'Rahasia123'})
+        assert changed.status_code == 200
+        assert client.get('/api/portal/me', headers=ch).status_code == 401
+        nh = {'Authorization': 'Bearer ' + changed.json()['access_token']}
+        assert client.get('/api/portal/me', headers=nh).status_code == 200
+        assert client.delete(f"/api/customers/{cust['id']}/portal-access", headers=h).status_code == 204
+        assert client.get('/api/portal/me', headers=nh).status_code == 401
+        assert client.post('/api/portal/login', json={'customer_code': cust['code'], 'password': 'Rahasia123'}).status_code == 401
+
+
+def test_bank_accounts():
+    with TestClient(app) as client:
+        h = {'Authorization': 'Bearer ' + client.post('/api/auth/login', json={'email': 'test@nexaisp.local', 'password': 'very-long-test-password'}).json()['access_token']}
+        bca = client.post('/api/bank-accounts', headers=h, json={'bank_name': ' BCA ', 'account_number': '123 456 7890', 'account_holder': 'PT NexaISP', 'sort_order': 1})
+        assert bca.status_code == 201 and bca.json()['bank_name'] == 'BCA'
+        assert client.post('/api/bank-accounts', headers=h, json={'bank_name': 'BCA', 'account_number': '123 456 7890', 'account_holder': 'Orang Lain'}).status_code == 409
+        assert client.post('/api/bank-accounts', headers=h, json={'bank_name': 'BRI', 'account_number': '12<script>', 'account_holder': 'Orang Lain'}).status_code == 422
+        mandiri = client.post('/api/bank-accounts', headers=h, json={'bank_name': 'Mandiri', 'account_number': '900-00-1', 'account_holder': 'PT NexaISP', 'note': 'Cabang Bogor', 'sort_order': 0}).json()
+        old = client.post('/api/bank-accounts', headers=h, json={'bank_name': 'BNI', 'account_number': '5555', 'account_holder': 'PT NexaISP', 'active': False}).json()
+        assert [b['bank_name'] for b in client.get('/api/bank-accounts', headers=h).json()][:2] == ['Mandiri', 'BNI']
+        cust = client.post('/api/customers', headers=h, json={'name': 'Pelanggan Bank', 'kind': 'residential'}).json()
+        password = client.put(f"/api/customers/{cust['id']}/portal-access", headers=h, json={}).json()['password']
+        ch = {'Authorization': 'Bearer ' + client.post('/api/portal/login', json={'customer_code': cust['code'], 'password': password}).json()['access_token']}
+        shown = [b['bank_name'] for b in client.get('/api/portal/bank-accounts', headers=ch).json()]
+        assert 'BNI' not in shown and shown.index('Mandiri') < shown.index('BCA')
+        assert client.post('/api/bank-accounts', headers=ch, json={'bank_name': 'Palsu', 'account_number': '1111', 'account_holder': 'Penipu'}).status_code == 403
+        assert client.put(f"/api/bank-accounts/{old['id']}", headers=h, json={**old, 'active': True}).status_code == 200
+        assert 'BNI' in [b['bank_name'] for b in client.get('/api/portal/bank-accounts', headers=ch).json()]
+        assert client.delete(f"/api/bank-accounts/{mandiri['id']}", headers=h).status_code == 204
+        assert 'Mandiri' not in [b['bank_name'] for b in client.get('/api/portal/bank-accounts', headers=ch).json()]

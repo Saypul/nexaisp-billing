@@ -1,0 +1,183 @@
+/* Portal pelanggan NexaISP — token merek sama dengan aplikasi admin (navy, turquoise, kartu putih membulat). */
+:root {
+  --bg: #f5f8fc;
+  --card: #ffffff;
+  --ink: #182942;
+  --ink-2: #52667b;
+  --ink-3: #8a99ab;
+  --line: #e6edf3;
+  --navy: #122238;
+  --navy-2: #1b344e;
+  --teal: #078e9b;
+  --teal-hover: #077987;
+  --teal-soft: #e1f7f3;
+  --teal-bright: #54e2d9;
+  --good-bg: #e0f8ee; --good: #129b74;
+  --warn-bg: #fff1d9; --warn: #a8731f;
+  --bad-bg: #ffe7e5; --bad: #c9473e;
+  --info-bg: #e9efff; --info: #4d6aac;
+  --radius: 16px;
+  --shadow: 0 3px 14px rgba(28, 68, 97, .06);
+  --tabs-h: 64px;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  color: var(--ink);
+  background: var(--bg);
+  -webkit-text-size-adjust: 100%;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); min-height: 100dvh; -webkit-tap-highlight-color: transparent; }
+button, input, select, textarea { font: inherit; color: inherit; }
+h1, h2, p { margin: 0; }
+.mono { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: .92em; }
+.p-muted { color: var(--ink-2); }
+.p-small { font-size: .82rem; line-height: 1.45; }
+.p-pad { padding: 1rem 0; display: grid; gap: .8rem; }
+
+/* kerangka */
+.p-app { min-height: 100dvh; }
+.p-main {
+  max-width: 34rem; margin: 0 auto;
+  padding: calc(env(safe-area-inset-top) + 1.1rem) 16px calc(var(--tabs-h) + env(safe-area-inset-bottom) + 1.5rem);
+  display: grid; gap: .9rem; align-content: start;
+}
+.p-title { font-size: 1.45rem; font-weight: 800; letter-spacing: -.02em; }
+.p-h2 { font-size: .95rem; font-weight: 750; margin-top: .6rem; color: var(--ink); }
+.p-tabs {
+  position: fixed; inset: auto 0 0 0; z-index: 10;
+  display: grid; grid-template-columns: repeat(4, 1fr);
+  height: calc(var(--tabs-h) + env(safe-area-inset-bottom)); padding-bottom: env(safe-area-inset-bottom);
+  background: var(--card); border-top: 1px solid var(--line);
+}
+.p-tabs button {
+  border: 0; background: none; display: grid; justify-items: center; align-content: center; gap: .2rem;
+  font-size: .72rem; font-weight: 600; color: var(--ink-3); cursor: pointer;
+}
+.p-tabs button.on, .p-tabs button.sub { color: var(--teal); }
+.p-tabs button.on svg { stroke-width: 2.4; }
+
+/* kartu & baris */
+.p-card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); padding: 1rem; }
+.p-row { display: flex; align-items: center; gap: .75rem; justify-content: space-between; }
+.p-row > span:first-child { display: grid; gap: .15rem; min-width: 0; }
+.p-row small { color: var(--ink-3); font-size: .78rem; }
+.p-link { width: 100%; text-align: left; cursor: pointer; }
+.p-link:active { background: #f0f5f9; }
+.p-link > svg:last-child { color: var(--ink-3); flex: none; }
+.p-link > span:nth-child(2) { flex: 1; display: grid; gap: .1rem; }
+.p-link > svg:first-child { color: var(--teal); flex: none; }
+.p-right { display: grid; justify-items: end; gap: .3rem; margin-left: auto; }
+.p-list { list-style: none; margin: 0; padding: 0; display: grid; gap: .6rem; }
+
+/* sapaan */
+.p-hello { display: grid; gap: .1rem; padding-top: .3rem; }
+.p-hello h1 { font-size: 1.6rem; font-weight: 800; letter-spacing: -.025em; line-height: 1.15; }
+.p-id { font-size: .78rem; color: var(--ink-3); font-family: ui-monospace, Menlo, monospace; }
+
+/* kartu tagihan — elemen utama beranda */
+.p-bill {
+  position: relative; overflow: hidden; border-radius: 20px; padding: 1.3rem 1.2rem 1.15rem;
+  color: #fff; background: var(--navy); display: grid; gap: .3rem;
+  box-shadow: 0 12px 28px rgba(18, 34, 56, .22);
+}
+.p-bill::after {
+  content: ""; position: absolute; right: -60px; top: -70px; width: 200px; height: 200px; border-radius: 50%;
+  border: 26px solid rgba(84, 226, 217, .14); pointer-events: none;
+}
+.p-bill-label { font-size: .8rem; color: #b3c3d6; font-weight: 600; }
+.p-bill-amount { font-size: 2.1rem; font-weight: 800; letter-spacing: -.03em; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.p-bill-due { font-size: .85rem; color: var(--teal-bright); font-weight: 600; }
+.p-bill.late .p-bill-due { color: #ffb3ac; }
+.p-bill-note { font-size: .78rem; color: #b3c3d6; }
+.p-bill-actions { display: flex; gap: .6rem; margin-top: .75rem; position: relative; z-index: 1; }
+.p-bill-actions .p-btn { flex: 1; }
+
+/* tombol & form */
+.p-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: .45rem;
+  min-height: 46px; padding: .7rem 1rem; border-radius: 12px; border: 1px solid transparent;
+  background: var(--teal); color: #fff; font-weight: 700; font-size: .95rem; cursor: pointer;
+}
+.p-btn:active { background: var(--teal-hover); }
+.p-btn:disabled { opacity: .5; cursor: not-allowed; }
+.p-btn.light { background: var(--teal-bright); color: var(--navy); }
+.p-btn.outline { background: transparent; border-color: rgba(255, 255, 255, .35); color: #fff; }
+.p-btn.ghost { background: var(--card); border-color: var(--line); color: var(--ink); }
+.p-out { color: var(--bad) !important; margin-top: .4rem; }
+.p-form { display: grid; gap: .85rem; }
+.p-form label { display: grid; gap: .35rem; font-size: .84rem; font-weight: 650; color: var(--ink-2); }
+.p-form label small { font-weight: 500; color: var(--ink-3); }
+.p-form input, .p-form select, .p-form textarea {
+  width: 100%; min-height: 46px; padding: .65rem .8rem; border: 1px solid #d5dfe8; border-radius: 11px;
+  background: #fff; font-size: 1rem; color: var(--ink); font-weight: 500;
+}
+.p-form textarea { resize: vertical; }
+.p-form input:focus, .p-form select:focus, .p-form textarea:focus { outline: 2px solid rgba(7, 142, 155, .35); border-color: var(--teal); }
+.p-alert { background: var(--bad-bg); color: var(--bad); padding: .7rem .8rem; border-radius: 10px; font-size: .86rem; font-weight: 600; }
+.p-ok { background: var(--good-bg); color: var(--good); padding: .7rem .8rem; border-radius: 10px; font-size: .86rem; font-weight: 600; }
+.p-hint { margin-top: .6rem; font-size: .82rem; color: var(--ink-2); background: #f3f7fa; border-radius: 9px; padding: .55rem .7rem; }
+
+.p-photo { position: relative; display: grid !important; place-items: center; min-height: 150px; border: 1.5px dashed #b9c9d6; border-radius: 13px; background: #f7fafc; overflow: hidden; cursor: pointer; }
+.p-photo span { display: grid; justify-items: center; gap: .4rem; color: var(--teal); font-weight: 650; padding: 1rem; text-align: center; }
+.p-photo img { width: 100%; max-height: 280px; object-fit: contain; display: block; }
+.p-photo input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+
+/* status */
+.p-tag { display: inline-block; padding: .2rem .55rem; border-radius: 99px; font-size: .72rem; font-weight: 700; white-space: nowrap; }
+.t-paid, .p-approved, .c-resolved { background: var(--good-bg); color: var(--good); }
+.t-unpaid, .p-pending, .c-in_progress { background: var(--info-bg); color: var(--info); }
+.t-partial { background: var(--warn-bg); color: var(--warn); }
+.t-overdue, .p-rejected, .c-open { background: var(--bad-bg); color: var(--bad); }
+.c-open { background: var(--warn-bg); color: var(--warn); }
+.p-dot { margin-left: auto; font-size: .74rem; font-weight: 700; display: inline-flex; align-items: center; gap: .35rem; }
+.p-dot::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+.p-dot.good { color: var(--good); } .p-dot.warn { color: var(--warn); } .p-dot.bad { color: var(--bad); }
+
+/* layanan */
+.p-service-top { display: flex; align-items: center; gap: .5rem; }
+.p-service-top svg { color: var(--teal); flex: none; }
+.p-service dl, .p-profile { margin: .8rem 0 0; display: grid; gap: .5rem; }
+.p-service dl div, .p-profile div { display: flex; justify-content: space-between; gap: 1rem; font-size: .86rem; }
+.p-profile { margin: 0 0 .7rem; }
+dt { color: var(--ink-3); }
+dd { margin: 0; text-align: right; font-weight: 600; }
+
+/* invoice */
+.p-back { display: flex; align-items: center; gap: .4rem; }
+.p-back button { border: 0; background: var(--card); border: 1px solid var(--line); border-radius: 11px; width: 40px; height: 40px; display: grid; place-items: center; cursor: pointer; }
+.p-back h1 { font-size: 1.15rem; font-weight: 750; }
+.p-lines { list-style: none; padding: 0; margin: .8rem 0 .6rem; display: grid; gap: .55rem; }
+.p-lines li { display: flex; justify-content: space-between; gap: 1rem; font-size: .88rem; }
+.p-lines li span { color: var(--ink-2); }
+.p-lines li.sum { border-top: 1px solid var(--line); padding-top: .55rem; font-size: .95rem; }
+.p-lines li.sum span { color: var(--ink); font-weight: 650; }
+.p-lines b { font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+/* gangguan */
+.p-complaint { display: grid; gap: .55rem; }
+.p-complaint > p { font-size: .88rem; color: var(--ink-2); line-height: 1.45; }
+.p-reply { display: grid; gap: .2rem; background: var(--teal-soft); border-radius: 10px; padding: .6rem .75rem; font-size: .86rem; color: var(--ink) !important; }
+.p-reply b { font-size: .74rem; color: var(--teal); }
+.p-proof p { margin-top: .5rem; }
+
+/* login */
+.p-login { max-width: 26rem; margin: 0 auto; padding: calc(env(safe-area-inset-top) + 3rem) 16px 2rem; display: grid; gap: .9rem; }
+.p-brand { display: flex; align-items: center; gap: .6rem; margin-bottom: 1.2rem; }
+.p-brand b { font-size: 1.35rem; font-weight: 900; letter-spacing: -.04em; color: var(--navy); }
+.p-brand b span { color: var(--teal); }
+.p-login h1 { font-size: 1.7rem; font-weight: 800; letter-spacing: -.025em; }
+
+@media (prefers-reduced-motion: no-preference) { .p-link, .p-btn { transition: background .15s; } }
+
+/* rekening tujuan transfer */
+.p-banks .p-h2 { margin: 0 0 .4rem; }
+.p-banks ul { list-style: none; margin: 0; padding: 0; display: grid; }
+.p-banks li { display: flex; align-items: center; justify-content: space-between; gap: .75rem; padding: .7rem 0; border-top: 1px solid var(--line); }
+.p-banks li:first-child { border-top: 0; padding-top: .2rem; }
+.p-banks li > span { display: grid; gap: .1rem; min-width: 0; }
+.p-banks li b { font-size: 1.08rem; letter-spacing: .02em; color: var(--ink); }
+.p-banks li small { color: var(--ink-3); font-size: .78rem; }
+.p-banks li small:first-child { color: var(--ink-2); font-weight: 700; font-size: .8rem; }
+.p-banks button {
+  flex: none; display: inline-flex; align-items: center; gap: .3rem; min-height: 38px; padding: 0 .8rem;
+  border: 1px solid var(--line); border-radius: 10px; background: var(--teal-soft); color: var(--teal); font-weight: 700; font-size: .82rem; cursor: pointer;
+}

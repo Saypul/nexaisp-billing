@@ -11,3 +11,5 @@ uploads/
 *.sql
 .venv/
 venv/
+.env.*
+!.env.example
