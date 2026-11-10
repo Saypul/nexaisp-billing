@@ -14,6 +14,7 @@ export const useDashboard = resource('dashboard');
 export const useTelegram = resource('telegram');
 export const useNocUsers = resource('users/noc');
 export const useHealth = resource('health');
+export const useBankAccounts = resource('bank-accounts');
 export const useRouters = resource('routers');
 export const useNetworkSettings = resource('network/settings');
 export const useNetworkEvents = resource('network/events');

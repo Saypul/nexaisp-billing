@@ -18,11 +18,12 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload, object_session
 from . import network
 from .database import Base, SessionLocal, engine, get_db
-from .models import Customer, Invoice, InvoiceItem, Payment, Router, ServicePlan, Subscription, Ticket, TicketEvent, TelegramBotState, TelegramConfig, User
-from .schemas import CustomerCreate, CustomerCreateWithService, CustomerOut, InvoiceGenerate, InvoiceUpdate, Login, PaymentCreate, PlanCreate, PlanOut, PlanUpdate, SubscriptionCreate, SubscriptionStatus, TicketCreate, TicketUpdate, TicketActivation, NocUserCreate, TelegramConfigUpdate
-from .security import admin_only, admin_or_noc, hash_password, token_for, verify_password
+from .models import Customer, Invoice, InvoiceItem, Payment, PaymentProof, Router, ServicePlan, Subscription, Ticket, TicketEvent, TelegramBotState, TelegramConfig, User
+from .schemas import CustomerCreate, CustomerCreateWithService, CustomerOut, InvoiceGenerate, InvoiceUpdate, Login, PaymentCreate, PlanCreate, PlanOut, PlanUpdate, SubscriptionCreate, SubscriptionStatus, TicketCreate, TicketUpdate, TicketActivation, NocUserCreate, TelegramConfigUpdate, ProofApprove
+from .security import PASSWORD_RULE, admin_only, admin_or_noc, hash_password, password_ok, token_for, verify_password
 from .network_api import api as network_api
 from .ppp_api import api as ppp_api
+from .portal_api import api as portal_api
 from .telegram_config import cipher, get_bot_token, get_admin_chat_id, get_work_order_chat_id, get_category_teams, get_ticket_team, get_ticket_chat_id
 
 
@@ -75,6 +76,9 @@ async def lifespan(app: FastAPI):
         conn.execute(text('UPDATE subscriptions SET setup_fee = 0 WHERE setup_fee IS NULL'))
         conn.execute(text("UPDATE tickets SET status = 'open' WHERE status = 'new'"))
         conn.execute(text("UPDATE tickets SET status = 'closed' WHERE status = 'active'"))
+        customer_columns = {c['name'] for c in inspect(conn).get_columns('customers')}
+        if 'portal_password_hash' not in customer_columns:
+            conn.execute(text('ALTER TABLE customers ADD COLUMN portal_password_hash VARCHAR(512)'))
         ticket_columns = {c['name'] for c in inspect(conn).get_columns('tickets')}
         if 'technician_name' not in ticket_columns:
             conn.execute(text('ALTER TABLE tickets ADD COLUMN technician_name VARCHAR(120)'))
@@ -121,8 +125,8 @@ async def lifespan(app: FastAPI):
         db.commit()
         email = os.getenv('ADMIN_EMAIL')
         password = os.getenv('ADMIN_PASSWORD')
-        if not email or not password or len(password) < 12:
-            raise RuntimeError('ADMIN_EMAIL dan ADMIN_PASSWORD minimal 12 karakter wajib diatur')
+        if not email or not password or not password_ok(password):
+            raise RuntimeError(f'ADMIN_EMAIL wajib diatur. ADMIN_PASSWORD: {PASSWORD_RULE}')
         admin = db.scalar(select(User).where(User.email == email))
         if admin is None:
             db.add(User(email=email, password_hash=hash_password(password), role='admin'))
@@ -145,6 +149,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title='NexaISP Billing API', version='0.3.0', lifespan=lifespan, docs_url=None, redoc_url=None)
 app.include_router(network_api)
 app.include_router(ppp_api)
+app.include_router(portal_api)
 
 
 @app.get('/api/health')
@@ -932,6 +937,13 @@ def delete_invoice(invoice_id: int, db: Session = Depends(get_db), _: User = Dep
 
 @app.post('/api/invoices/{invoice_id}/payments', status_code=201)
 def add_payment(invoice_id: int, data: PaymentCreate, background: BackgroundTasks, db: Session = Depends(get_db), _: User = Depends(admin_only)):
+    obj, invoice, remaining = record_payment(db, invoice_id, data)
+    safe_commit(db)
+    after_payment(background, invoice)
+    return {'id': obj.id, 'status': invoice.status, 'remaining': remaining}
+
+
+def record_payment(db: Session, invoice_id: int, data: PaymentCreate):
     invoice = db.scalar(select(Invoice).where(Invoice.id == invoice_id).with_for_update())
     if not invoice:
         raise HTTPException(404, 'Invoice tidak ditemukan')
@@ -944,11 +956,30 @@ def add_payment(invoice_id: int, data: PaymentCreate, background: BackgroundTask
     db.add(obj)
     if paid + data.amount == invoice.total:
         invoice.status = 'paid'
-    safe_commit(db)
+    return obj, invoice, invoice.total - paid - data.amount
+
+
+def after_payment(background: BackgroundTasks, invoice: Invoice):
     if invoice.status == 'paid':
         # Buka isolir tunggakan segera setelah lunas, tanpa menunggu putaran per jam.
         background.add_task(network.restore_paid_customer, invoice.customer_id, local_today())
-    return {'id': obj.id, 'status': invoice.status, 'remaining': invoice.total - paid - data.amount}
+
+
+@app.post('/api/payment-proofs/{proof_id}/approve')
+def approve_payment_proof(proof_id: int, data: ProofApprove, background: BackgroundTasks, db: Session = Depends(get_db), user: User = Depends(admin_only)):
+    proof = db.scalar(select(PaymentProof).where(PaymentProof.id == proof_id).with_for_update())
+    if proof is None:
+        raise HTTPException(404, 'Bukti transfer tidak ditemukan')
+    if proof.status != 'pending':
+        raise HTTPException(409, 'Bukti transfer sudah diproses')
+    payment, invoice, remaining = record_payment(db, proof.invoice_id, PaymentCreate(
+        amount=data.amount or proof.amount, method=data.method, reference=f'APP-{proof.id:06d}'))
+    db.flush()
+    proof.status, proof.payment_id = 'approved', payment.id
+    proof.reviewed_by, proof.reviewed_at = user.email, datetime.now(timezone.utc)
+    safe_commit(db)
+    after_payment(background, invoice)
+    return {'payment_id': payment.id, 'status': invoice.status, 'remaining': remaining}
 
 
 @app.get('/api/dashboard')

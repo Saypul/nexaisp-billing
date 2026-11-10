@@ -11,3 +11,6 @@ uploads/
 *.sql
 .venv/
 venv/
+.env.*
+!.env.example
+.claude/settings.local.json

@@ -1,9 +1,10 @@
 import React, {useMemo, useState} from 'react';
 import {Link, useNavigate, useParams, useSearchParams} from 'react-router-dom';
-import {ArrowLeft, ClipboardList, Pencil, Printer, Trash2} from 'lucide-react';
+import {ArrowLeft, ClipboardList, Pencil, Printer, Smartphone, Trash2} from 'lucide-react';
 import {useApiMutation, useCustomers, useInvoices, useSubscriptions, useTickets} from '../api/hooks.js';
 import DataTable, {actionsCol, col} from '../components/DataTable.jsx';
 import {useConfirm} from '../components/feedback.jsx';
+import PortalAccess from '../components/PortalAccess.jsx';
 import TicketDetail from '../components/TicketDetail.jsx';
 import {Alert, Button, Details, Empty, Figure, Figures, InvoiceStatus, NetworkStatus, PageHeader, QueryGate, ServiceStatus, Tabs, TicketBadge} from '../components/ui.jsx';
 import CustomerForm from '../forms/CustomerForm.jsx';
@@ -63,6 +64,7 @@ function Account({customer, services, invoices, tickets}) {
         actions={<>
           <Button variant="secondary" icon={Pencil} onClick={() => setDialog({type: 'edit'})}>Edit</Button>
           <Button variant="secondary" icon={ClipboardList} onClick={() => setDialog({type: 'ticket'})}>Ticket Layanan Baru</Button>
+          <Button variant="secondary" icon={Smartphone} onClick={() => setDialog({type: 'portal'})}>{customer.portal_enabled ? 'Akses Aplikasi' : 'Aktifkan Aplikasi'}</Button>
           <Button variant="ghost" icon={Trash2} onClick={destroy} disabled={!deletable || remove.isPending} title={deletable ? 'Hapus pelanggan' : 'Pelanggan memiliki layanan, ticket, atau invoice'}>Hapus</Button>
         </>}/>
       <Alert tone="error" onDismiss={remove.reset}>{remove.error?.message}</Alert>
@@ -82,6 +84,7 @@ function Account({customer, services, invoices, tickets}) {
       {tab === 'tickets' && <TicketsTab tickets={tickets} setDialog={setDialog}/>}
 
       {dialog?.type === 'edit' && <CustomerForm customer={customer} onClose={() => setDialog(null)}/>}
+      {dialog?.type === 'portal' && <PortalAccess customer={customer} onClose={() => setDialog(null)}/>}
       {dialog?.type === 'ticket' && <TicketForm customerId={customer.id} onClose={() => setDialog(null)}/>}
       {dialog?.type === 'network' && <NetworkForm serviceId={dialog.id} onClose={() => setDialog(null)}/>}
       {dialog?.type === 'service' && <ServiceForm service={dialog.service} invoiced={invoiced.has(dialog.service.id)} onClose={() => setDialog(null)}/>}

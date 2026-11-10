@@ -16,8 +16,11 @@ const Payments = lazy(() => import('./pages/Payments.jsx'));
 const Receivables = lazy(() => import('./pages/Receivables.jsx'));
 const Catalog = lazy(() => import('./pages/Catalog.jsx'));
 const Network = lazy(() => import('./pages/Network.jsx'));
+const IpPools = lazy(() => import('./pages/IpPools.jsx'));
 const PppProfiles = lazy(() => import('./pages/PppProfiles.jsx'));
 const PppUsers = lazy(() => import('./pages/PppUsers.jsx'));
+const Complaints = lazy(() => import('./pages/Complaints.jsx'));
+const PaymentProofs = lazy(() => import('./pages/PaymentProofs.jsx'));
 const Telegram = lazy(() => import('./pages/Telegram.jsx'));
 const Settings = lazy(() => import('./pages/Settings.jsx'));
 const Noc = lazy(() => import('./pages/Noc.jsx'));
@@ -41,9 +44,12 @@ export default function App() {
         <Route path="invoices" element={<Invoices/>}/>
         <Route path="invoices/:id" element={<InvoiceDetail/>}/>
         <Route path="payments" element={<Payments/>}/>
+        <Route path="payment-proofs" element={<PaymentProofs/>}/>
+        <Route path="complaints" element={<Complaints/>}/>
         <Route path="receivables" element={<Receivables/>}/>
         <Route path="catalog" element={<Catalog/>}/>
         <Route path="network" element={<Network/>}/>
+        <Route path="network/pools" element={<IpPools/>}/>
         <Route path="network/profiles" element={<PppProfiles/>}/>
         <Route path="network/users" element={<PppUsers/>}/>
         <Route path="telegram" element={<Telegram/>}/>

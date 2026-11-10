@@ -45,3 +45,6 @@ export const fmtPeriod = p => {
   return new Date(y, m - 1, 1).toLocaleDateString('id-ID', {month: 'short', year: 'numeric'});
 };
 export const daysBetween = (from, to) => Math.round((Date.parse(to) - Date.parse(from)) / 864e5);
+export const complaintCategoryNames = {no_internet: 'Internet mati', slow: 'Internet lambat', intermittent: 'Putus-sambung', other: 'Lainnya'};
+export const complaintStatusNames = {open: 'Baru', in_progress: 'Ditangani', resolved: 'Selesai'};
+export const proofStatusNames = {pending: 'Menunggu verifikasi', approved: 'Diterima', rejected: 'Ditolak'};

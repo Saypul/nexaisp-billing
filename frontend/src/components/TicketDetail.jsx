@@ -1,29 +1,10 @@
-import React, {useEffect, useState} from 'react';
-import {fetchBlob} from '../api/client.js';
+import React from 'react';
+import AuthImage from './AuthImage.jsx';
 import {billingNames, categories, fmtDateTime, idr, invoiceModeNames, teamNames, ticketStatusNames} from '../lib/format.js';
 import {Details, Dialog, TicketStage} from './ui.jsx';
 
 function EventPhoto({url, status}) {
-  const [src, setSrc] = useState(null);
-  const [failed, setFailed] = useState(false);
-  useEffect(() => {
-    const controller = new AbortController();
-    let objectUrl;
-    setSrc(null);
-    setFailed(false);
-    fetchBlob(url, controller.signal)
-      .then(blob => { if (!controller.signal.aborted) { objectUrl = URL.createObjectURL(blob); setSrc(objectUrl); } })
-      .catch(() => { if (!controller.signal.aborted) setFailed(true); });
-    return () => { controller.abort(); if (objectUrl) URL.revokeObjectURL(objectUrl); };
-  }, [url]);
-  if (failed) return <span className="fineprint">Foto tidak dapat dimuat.</span>;
-  if (!src) return <span className="fineprint">Memuat foto…</span>;
-  return (
-    <a className="event-photo" href={src} target="_blank" rel="noopener noreferrer">
-      <img src={src} alt={'Dokumentasi tahap ' + (ticketStatusNames[status] || status)} loading="lazy"/>
-      <span>Buka foto dokumentasi</span>
-    </a>
-  );
+  return <AuthImage url={url} alt={'Dokumentasi tahap ' + (ticketStatusNames[status] || status)} label="Buka foto dokumentasi"/>;
 }
 
 export function TicketHistory({events = []}) {

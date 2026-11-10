@@ -27,6 +27,8 @@ class Customer(Base):
     email: Mapped[str | None] = mapped_column(String(255), nullable=True)
     phone: Mapped[str | None] = mapped_column(String(60), nullable=True)
     address: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Akses aplikasi pelanggan; kosong = belum diaktifkan admin.
+    portal_password_hash: Mapped[str | None] = mapped_column(String(512), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     subscriptions: Mapped[list["Subscription"]] = relationship(back_populates="customer")
 
@@ -169,6 +171,58 @@ class Payment(Base):
     paid_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     invoice: Mapped["Invoice"] = relationship(back_populates="payments")
     __table_args__ = (CheckConstraint("amount > 0", name="payment_positive"),)
+
+
+class BankAccount(Base):
+    """Rekening tujuan transfer yang ditampilkan di aplikasi pelanggan."""
+    __tablename__ = "bank_accounts"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    bank_name: Mapped[str] = mapped_column(String(80))
+    account_number: Mapped[str] = mapped_column(String(40))
+    account_holder: Mapped[str] = mapped_column(String(120))
+    note: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    __table_args__ = (UniqueConstraint("bank_name", "account_number", name="uq_bank_account"),)
+
+
+class Complaint(Base):
+    """Laporan gangguan dari aplikasi pelanggan. Terpisah dari ticket work order pemasangan."""
+    __tablename__ = "complaints"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    customer_id: Mapped[int] = mapped_column(ForeignKey("customers.id", ondelete="CASCADE"), index=True)
+    subscription_id: Mapped[int | None] = mapped_column(ForeignKey("subscriptions.id", ondelete="SET NULL"), nullable=True)
+    category: Mapped[str] = mapped_column(String(30))  # no_internet | slow | intermittent | other
+    description: Mapped[str] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(20), default="open")  # open | in_progress | resolved
+    reply: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    customer: Mapped["Customer"] = relationship()
+    subscription: Mapped["Subscription | None"] = relationship()
+
+
+class PaymentProof(Base):
+    """Bukti transfer yang diunggah pelanggan; menjadi Payment setelah diverifikasi admin."""
+    __tablename__ = "payment_proofs"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    customer_id: Mapped[int] = mapped_column(ForeignKey("customers.id", ondelete="CASCADE"), index=True)
+    invoice_id: Mapped[int] = mapped_column(ForeignKey("invoices.id", ondelete="CASCADE"), index=True)
+    amount: Mapped[int] = mapped_column(Integer)
+    sender_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    filename: Mapped[str] = mapped_column(String(80))
+    status: Mapped[str] = mapped_column(String(20), default="pending")  # pending | approved | rejected
+    review_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    reviewed_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    payment_id: Mapped[int | None] = mapped_column(ForeignKey("payments.id", ondelete="SET NULL"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    customer: Mapped["Customer"] = relationship()
+    invoice: Mapped["Invoice"] = relationship()
+    __table_args__ = (CheckConstraint("amount > 0", name="proof_positive"),)
 
 
 class Router(Base):
