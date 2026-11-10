@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Build APK pelanggan. Pemakaian: ./build.sh [URL server] [versi]   (default http://192.168.60.4:3100 1.0.0)
+# Build APK pelanggan. Pemakaian: ./build.sh [URL server] [versi]   (default https://billing.transmediadata.net 1.0.0)
 # APK membuka <URL>/portal. Versi x.y.z menjadi versionCode x*10000+y*100+z; naikkan tiap rilis agar bisa dipasang sebagai update.
 set -euo pipefail
 cd "$(dirname "$0")"
-URL="${1:-http://192.168.60.4:3100}"
+URL="${1:-https://billing.transmediadata.net}"
 URL="${URL%/}"
 VERSION="${2:-1.0.0}"
 [[ "$VERSION" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]] || { echo "Versi harus berformat x.y.z" >&2; exit 1; }
