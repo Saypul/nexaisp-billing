@@ -1,5 +1,4 @@
 import React from 'react';
-import {ArrowUpRight} from 'lucide-react';
 import {useApiMutation, useTelegram, useTeams} from '../api/hooks.js';
 import {Alert, Button, Details, Field, PageHeader, QueryGate, Section} from '../components/ui.jsx';
 import {categories, teamNames} from '../lib/format.js';
@@ -35,17 +34,17 @@ export default function Telegram() {
 
   return (
     <>
-      <PageHeader eyebrow="Integrasi · Work order" title="Telegram & Otomasi" description="WO dikirim otomatis ke grup Teknisi atau NOC sesuai kategori layanan."/>
+      <PageHeader eyebrow="Integrasi · Work order" title="Telegram" description="WO dikirim otomatis ke grup Teknisi atau NOC sesuai kategori layanan, langsung melalui bot."/>
       <QueryGate queries={[telegram]}>
         {() => {
           const t = telegram.data;
           return (
             <div className="split">
-              <Section title={t.bot_username ? '@' + t.bot_username : 'Bot belum terhubung'} sub={t.configured ? 'Bot aktif untuk polling Work Order' : 'Masukkan token dari BotFather untuk menghubungkan bot'}>
+              <Section title={t.bot_username ? '@' + t.bot_username : 'Bot belum terhubung'} sub={t.configured ? 'Bot aktif untuk Work Order' : 'Masukkan token dari BotFather untuk menghubungkan bot'}>
                 <Details entries={[
                   ['Bot ID', t.bot_id], ['Chat ID Admin', t.admin_chat_id], ['Grup Teknisi', t.work_order_chat_id], ['Grup NOC', t.noc_chat_id],
                   ...Object.entries(categories).map(([cat, label]) => ['Rute ' + label, teamNames[teams[cat]]]),
-                  ['Notifikasi WO', t.notification_mode === 'n8n' ? 'Melalui n8n' : 'Langsung melalui bot'],
+                  ['Pesan masuk', t.update_mode === 'webhook' ? 'Webhook HTTPS (langsung)' : 'Polling (domain HTTPS belum diatur)'],
                 ]}/>
               </Section>
               <Section title="Konfigurasi" sub="Hanya administrator yang dapat menyimpan token bot">
@@ -76,9 +75,6 @@ export default function Telegram() {
         }}
       </QueryGate>
       <div className="split">
-        <Section title="n8n Automation" sub="Editor workflow pada server ini" actions={<a className="btn secondary small" href={`http://${window.location.hostname}:5679`} target="_blank" rel="noopener noreferrer"><ArrowUpRight size={14}/> Buka n8n</a>}>
-          <p className="prose">Workflow “NexaISP Work Order to Telegram” mengirim notifikasi WO bila <code>N8N_WO_WEBHOOK_URL</code> diatur pada backend.</p>
-        </Section>
         <Section title="Perintah tim WO" sub="Tombol pada pesan WO; perintah teks tetap tersedia sebagai cadangan">
           <dl className="commands">{commands.map(([c, d]) => <div key={c}><dt><code>{c}</code></dt><dd>{d}</dd></div>)}</dl>
         </Section>

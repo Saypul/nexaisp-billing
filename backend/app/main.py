@@ -1,4 +1,5 @@
 import asyncio
+import hmac
 import logging
 import os
 import re
@@ -10,7 +11,7 @@ from contextlib import asynccontextmanager
 from collections import defaultdict
 from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
-from fastapi import BackgroundTasks, FastAPI, Depends, HTTPException
+from fastapi import BackgroundTasks, FastAPI, Depends, Header, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import func, select, inspect, text
@@ -197,8 +198,23 @@ def telegram_config_view(db: Session):
         'work_order_chat_id': get_work_order_chat_id(db),
         'noc_chat_id': config.noc_chat_id if config else None,
         'category_teams': get_category_teams(db),
-        'notification_mode': 'n8n' if os.getenv('N8N_WO_WEBHOOK_URL', '').strip() else 'direct',
+        'update_mode': 'webhook' if os.getenv('BILLING_DOMAIN', '').strip() else 'polling',
     }
+
+
+@app.post('/api/telegram/webhook')
+def telegram_webhook(update: dict, x_telegram_bot_api_secret_token: str = Header(default=''), db: Session = Depends(get_db)):
+    # Diproses langsung (bukan background) dengan max_connections=1 agar urutan update terjaga dan
+    # Telegram mengirim ulang bila pemrosesan gagal.
+    from .telegram_worker import handle_update, webhook_secret
+    if not os.getenv('BILLING_DOMAIN', '').strip():
+        raise HTTPException(404, 'Not Found')
+    if not hmac.compare_digest(x_telegram_bot_api_secret_token, webhook_secret()):
+        raise HTTPException(403, 'Akses ditolak')
+    token = get_bot_token(db)
+    if token:
+        handle_update(token, update)
+    return {'ok': True}
 
 
 @app.get('/api/telegram')
