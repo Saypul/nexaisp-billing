@@ -13,3 +13,4 @@ uploads/
 venv/
 .env.*
 !.env.example
+.claude/settings.local.json
