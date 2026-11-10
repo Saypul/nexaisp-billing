@@ -1,4 +1,10 @@
-"""Telegram polling for group WO pickup, progress, and n8n notifications."""
+"""Bot Telegram Work Order: notifikasi WO langsung ke Bot API, pesan masuk lewat webhook HTTPS.
+
+Webhook dipakai bila BILLING_DOMAIN diisi (endpoint /api/telegram/webhook di backend); tanpa domain,
+worker kembali ke polling getUpdates. Worker selalu mengirim ulang notifikasi WO yang tertunda.
+"""
+import hashlib
+import hmac
 import json
 import logging
 import os
@@ -48,22 +54,6 @@ def send_message(token: str, chat_id: int, message: str, keyboard: dict | None =
             for button in row['row']['buttons']
         ] for row in keyboard['rows']]}
     return telegram_call(token, 'sendMessage', payload)
-
-
-def dispatch_notification(token: str, chat_id: int, message: str, keyboard: dict | None = None):
-    webhook_url = os.getenv('N8N_WO_WEBHOOK_URL', '').strip()
-    if not webhook_url:
-        return send_message(token, chat_id, message, keyboard)
-    webhook_key = os.getenv('N8N_WO_WEBHOOK_KEY', '').strip()
-    if not webhook_key:
-        raise RuntimeError('N8N_WO_WEBHOOK_KEY belum diatur')
-    request = urllib.request.Request(
-        webhook_url, json.dumps({'chat_id': chat_id, 'text': message[:4000], 'keyboard': keyboard}).encode('utf-8'),
-        headers={'Content-Type': 'application/json', 'X-Nexa-Webhook-Key': webhook_key},
-    )
-    with urllib.request.urlopen(request, timeout=35) as response:
-        if response.status < 200 or response.status >= 300:
-            raise RuntimeError('n8n menolak notifikasi WO')
 
 
 def work_order_text(ticket: Ticket):
@@ -129,7 +119,7 @@ def deliver_events(token: str):
             if event.note:
                 message += f'\n\nUpdate: {event.note}'
             try:
-                dispatch_notification(token, event.notify_telegram_id, message, work_order_keyboard(ticket))
+                send_message(token, event.notify_telegram_id, message, work_order_keyboard(ticket))
                 event.telegram_delivered_at = datetime.now(timezone.utc)
             except Exception:
                 log.warning('Pengiriman Telegram event %s gagal; akan dicoba ulang.', event.id)
@@ -379,6 +369,31 @@ def process_callback(token: str, callback: dict):
             log.warning('Tombol lama WO pada chat %s tidak dapat dinonaktifkan.', chat['id'])
 
 
+def already_processed(update_id: int) -> bool:
+    """Telegram mengirim ulang update yang gagal/timeout; update yang sudah diproses dilewati."""
+    with SessionLocal() as db:
+        state = db.get(TelegramBotState, 'last_update_id')
+        return bool(state) and update_id <= int(state.value)
+
+
+def mark_processed(update_id: int):
+    with SessionLocal() as db:
+        state = db.get(TelegramBotState, 'last_update_id')
+        if state:
+            state.value = str(max(int(state.value), update_id))
+        else:
+            db.add(TelegramBotState(key='last_update_id', value=str(update_id)))
+        db.commit()
+
+
+def handle_update(token: str, update: dict):
+    update_id = update.get('update_id')
+    if not isinstance(update_id, int) or already_processed(update_id):
+        return
+    process_update(token, update)
+    mark_processed(update_id)
+
+
 def poll_updates(token: str):
     with SessionLocal() as db:
         state = db.get(TelegramBotState, 'last_update_id')
@@ -388,19 +403,41 @@ def poll_updates(token: str):
         with SessionLocal() as db:
             if get_bot_token(db) != token:
                 return
-        update_id = update['update_id']
-        process_update(token, update)
-        with SessionLocal() as db:
-            state = db.get(TelegramBotState, 'last_update_id')
-            if state:
-                state.value = str(max(int(state.value), update_id))
-            else:
-                db.add(TelegramBotState(key='last_update_id', value=str(update_id)))
-            db.commit()
+        handle_update(token, update)
+
+
+# --- webhook ---------------------------------------------------------------------
+def webhook_url() -> str | None:
+    domain = os.getenv('BILLING_DOMAIN', '').strip()
+    return f'https://{domain}/api/telegram/webhook' if domain else None
+
+
+def webhook_secret() -> str:
+    # Diturunkan dari JWT_SECRET agar tidak perlu variabel baru; dikirim Telegram di header setiap update.
+    return hmac.new(os.environ['JWT_SECRET'].encode(), b'telegram-webhook', hashlib.sha256).hexdigest()
+
+
+def ensure_webhook(token: str, url: str | None):
+    """Samakan pendaftaran webhook di Telegram dengan konfigurasi server (url None = mode polling)."""
+    info = telegram_call(token, 'getWebhookInfo', {})
+    current = (info or {}).get('url') or None
+    if url is None:
+        if current:
+            telegram_call(token, 'deleteWebhook', {'drop_pending_updates': False})
+            log.info('Webhook Telegram dilepas; kembali ke polling.')
+        return
+    if current != url:
+        # max_connections=1: update diproses berurutan seperti polling (ambil WO dan progres tidak saling mendahului).
+        telegram_call(token, 'setWebhook', {'url': url, 'secret_token': webhook_secret(), 'max_connections': 1,
+                                            'allowed_updates': ['message', 'callback_query']})
+        log.info('Webhook Telegram terdaftar ke %s', url)
+    elif info.get('last_error_message'):
+        log.warning('Telegram melaporkan error webhook: %s', info['last_error_message'])
 
 
 def main():
     waiting_logged = False
+    checked_token, checked_at = None, 0.0
     while True:
         with SessionLocal() as db:
             token = get_bot_token(db)
@@ -411,11 +448,19 @@ def main():
             time.sleep(10)
             continue
         waiting_logged = False
+        url = webhook_url()
         try:
+            if token != checked_token or time.monotonic() - checked_at > 300:
+                ensure_webhook(token, url)
+                checked_token, checked_at = token, time.monotonic()
             deliver_events(token)
-            poll_updates(token)
+            if url is None:
+                poll_updates(token)
+            else:
+                time.sleep(3)
         except Exception:
             log.warning('Koneksi Telegram atau database gagal; mencoba lagi.', exc_info=False)
+            checked_token = None
             time.sleep(10)
 
 

@@ -1,0 +1,17 @@
+# Pintu HTTPS untuk billing. Port 80 di server ini dipakai proyek lain, jadi sertifikat Let's Encrypt
+# diterbitkan dan diperpanjang otomatis lewat TLS-ALPN-01 di port 443 saja (tanpa tantangan HTTP).
+{
+	auto_https disable_redirects
+	http_port 8081
+}
+
+{$BILLING_DOMAIN} {
+	tls {
+		issuer acme {
+			disable_http_challenge
+		}
+	}
+	encode gzip
+	header Strict-Transport-Security "max-age=31536000"
+	reverse_proxy frontend:8080
+}

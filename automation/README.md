@@ -1,6 +1,6 @@
-# Work Order Telegram dan n8n
+# Work Order Telegram
 
-Setiap pelanggan baru otomatis membuat ticket **Open** di menu Ticketing. Bila admin memilih layanan saat registrasi, layanan tetap **Pending** sampai ticket **Closed**. Setelah admin mengisi **Chat ID Grup Teknisi** di menu Telegram, n8n mengirim WO baru ke grup. Semua WO yang belum Closed juga dikirim sekali ketika Chat ID grup pertama kali disimpan.
+Setiap pelanggan baru otomatis membuat ticket **Open** di menu Ticketing. Bila admin memilih layanan saat registrasi, layanan tetap **Pending** sampai ticket **Closed**. Setelah admin mengisi **Chat ID Grup Teknisi** di menu Telegram, bot mengirim WO baru langsung ke grup. Semua WO yang belum Closed juga dikirim sekali ketika Chat ID grup pertama kali disimpan.
 
 ## 1. Bot dan grup teknisi
 
@@ -12,15 +12,13 @@ Setiap pelanggan baru otomatis membuat ticket **Open** di menu Ticketing. Bila a
 
 Perintah teks `/pickup`, `/status`, dan `/note` tetap tersedia sebagai cadangan. Jika bot memakai privacy mode Telegram, gunakan `/chatid@NamaBot` untuk konfigurasi grup. Chat ID grup dapat berubah saat grup dimigrasikan menjadi supergroup; perbarui ID di menu Telegram bila itu terjadi.
 
-Bot menerima pesan masuk dengan polling. Workflow n8n hanya mengirim notifikasi keluar; jangan mengaktifkan Telegram Trigger n8n untuk bot yang sama karena polling dan webhook Telegram tidak dapat dipakai bersamaan.
+## 2. Alur pesan
 
-## 2. n8n untuk notifikasi WO
+- **Keluar (notifikasi WO):** `telegram_worker` mengirim langsung ke Telegram Bot API. Event yang gagal terkirim disimpan dan dicoba ulang otomatis (maksimal 20 kali).
+- **Masuk (tombol, perintah, foto dari teknisi):** Telegram mengirim update lewat **webhook** ke `https://<BILLING_DOMAIN>/api/telegram/webhook`. Setiap request diverifikasi dengan header `X-Telegram-Bot-Api-Secret-Token`; update diproses berurutan (`max_connections=1`) dan update yang dikirim ulang Telegram tidak diproses dua kali.
+- Worker mendaftarkan webhook secara otomatis saat start, saat token bot diganti, dan memeriksanya setiap 5 menit. Bila `BILLING_DOMAIN` di `.env` kosong, worker melepas webhook dan kembali ke **polling**.
 
-n8n berjalan pada port `5679` di seluruh antarmuka jaringan server dengan data persisten. Buka `http://IP_SERVER:5679` dari perangkat di jaringan yang dapat mencapai server, lalu buat akun owner n8n. Port ini dipilih karena `5678` sudah digunakan aplikasi lain di server. Akses dari jaringan lain tetap mengikuti firewall/router server. Untuk akses lewat Internet, pasang HTTPS melalui reverse proxy sebelum memasukkan kredensial sensitif.
-
-Workflow **NexaISP Work Order to Telegram** sudah **terpublish** di n8n dengan alur **Webhook internal → Telegram Send Message** dan keyboard tombol inline dinamis. Kredensial Header Auth webhook dan Telegram API sudah terhubung. Worker billing memakai `N8N_WO_WEBHOOK_URL=http://n8n:5678/webhook/nexaisp-work-order`, sehingga notifikasi WO dikirim melalui n8n. Salinan workflow ada di [work-order-telegram.json](n8n/work-order-telegram.json).
-
-Pesan masuk dari teknisi tetap diterima melalui polling worker; riwayat progres tersimpan di database NexaISP. Jika token bot diganti di menu Telegram billing, perbarui juga kredensial **NexaISP WO Telegram Bot** di n8n sebelum mengirim WO berikutnya. Jangan mengimpor ulang JSON ke instance yang sama karena ID workflow tetap dapat menimpa konfigurasi kredensial yang dipilih di UI.
+Tidak ada layanan perantara (n8n tidak lagi dipakai). Jangan memasang webhook lain untuk bot yang sama, karena Telegram hanya mengizinkan satu webhook per bot dan worker akan menimpanya kembali.
 
 Foto dokumentasi disalin dari Telegram ke volume Docker `work_order_photos`, sehingga tetap dapat ditampilkan melalui API billing yang memerlukan login administrator. Volume ini perlu dipertahankan bersama database saat memindahkan server.
 

@@ -555,3 +555,47 @@ def test_bank_accounts():
         assert 'BNI' in [b['bank_name'] for b in client.get('/api/portal/bank-accounts', headers=ch).json()]
         assert client.delete(f"/api/bank-accounts/{mandiri['id']}", headers=h).status_code == 204
         assert 'Mandiri' not in [b['bank_name'] for b in client.get('/api/portal/bank-accounts', headers=ch).json()]
+
+
+def test_telegram_webhook(monkeypatch):
+    from app import telegram_worker
+    from app.telegram_config import cipher
+    token = '123456789:abcdefghijklmnopqrstuvwxyz123456'
+    sent = []
+    monkeypatch.setattr(telegram_worker, 'send_message', lambda tok, chat_id, text, keyboard=None: sent.append((chat_id, text)))
+    update = {'update_id': 990001, 'message': {'from': {'id': 77, 'first_name': 'Uji'}, 'chat': {'id': -100777, 'type': 'supergroup'}, 'text': '/chatid'}}
+    with TestClient(app) as client:
+        with SessionLocal() as db:
+            config = db.get(TelegramConfig, 1) or TelegramConfig(id=1)
+            config.encrypted_bot_token = cipher().encrypt(token.encode()).decode()
+            db.add(config)
+            db.commit()
+        # Tanpa domain: endpoint tidak aktif (mode polling).
+        monkeypatch.delenv('BILLING_DOMAIN', raising=False)
+        assert client.post('/api/telegram/webhook', json=update).status_code == 404
+        monkeypatch.setenv('BILLING_DOMAIN', 'billing.example.test')
+        assert telegram_worker.webhook_url() == 'https://billing.example.test/api/telegram/webhook'
+        assert client.post('/api/telegram/webhook', json=update).status_code == 403
+        assert client.post('/api/telegram/webhook', json=update, headers={'X-Telegram-Bot-Api-Secret-Token': 'salah'}).status_code == 403
+        secret = {'X-Telegram-Bot-Api-Secret-Token': telegram_worker.webhook_secret()}
+        assert client.post('/api/telegram/webhook', json=update, headers=secret).status_code == 200
+        assert sent == [(-100777, 'Chat ID grup ini: -100777\nMasukkan di menu Telegram billing pada kategori layanan yang sesuai.')]
+        # Update yang dikirim ulang Telegram tidak diproses dua kali.
+        assert client.post('/api/telegram/webhook', json=update, headers=secret).status_code == 200
+        assert len(sent) == 1
+
+    # Pendaftaran webhook disamakan dengan konfigurasi server.
+    calls = []
+    def fake_call(tok, method, payload):
+        calls.append((method, payload))
+        return {'url': current[0]} if method == 'getWebhookInfo' else True
+    monkeypatch.setattr(telegram_worker, 'telegram_call', fake_call)
+    current = ['']
+    telegram_worker.ensure_webhook(token, 'https://billing.example.test/api/telegram/webhook')
+    assert calls[-1][0] == 'setWebhook' and calls[-1][1]['secret_token'] == telegram_worker.webhook_secret() and calls[-1][1]['max_connections'] == 1
+    calls.clear(); current = ['https://billing.example.test/api/telegram/webhook']
+    telegram_worker.ensure_webhook(token, 'https://billing.example.test/api/telegram/webhook')
+    assert [c[0] for c in calls] == ['getWebhookInfo']
+    calls.clear()
+    telegram_worker.ensure_webhook(token, None)
+    assert [c[0] for c in calls] == ['getWebhookInfo', 'deleteWebhook']

@@ -11,7 +11,7 @@ Sistem **multi-service ISP billing** yang berjalan melalui Docker Compose, denga
 - **Pembayaran manual:** transfer, cash, QRIS manual (catat bukti transaksi sendiri), pembayaran parsial, status lunas otomatis setelah total diterima. **Tidak melakukan settlement ke gateway.**
 - **Security baseline:** Argon2 untuk password, token JWT kedaluwarsa 8 jam, API membutuhkan autentikasi admin, Nginx login rate limit, PostgreSQL tidak dipublikasikan, frontend hanya bind ke localhost secara default.
 - **Sumber data:** data riil dari PostgreSQL, bukan angka palsu. Demo seed tersedia opsional.
-- **Work Order Telegram:** ticket dapat ditugaskan ke User ID teknisi; admin dan teknisi mencatat progres dengan riwayat aktor. Menu Telegram menampilkan Bot ID dan mengatur token bot; n8n tersedia pada port 5679 untuk alur notifikasi setelah workflow dikonfigurasi.
+- **Work Order Telegram:** ticket dapat ditugaskan ke User ID teknisi; admin dan teknisi mencatat progres dengan riwayat aktor. Menu Telegram menampilkan Bot ID dan mengatur token bot; notifikasi dikirim langsung oleh bot dan pesan masuk diterima lewat webhook HTTPS.
 
 **Belum tersedia:** FreeRADIUS, NAS monitoring SNMP, IPAM/OLT provisioning, payment gateway, perpajakan, prorata, kontrak & SLA, role multiuser, portal pelanggan login, mobile native APK.
 
@@ -64,7 +64,7 @@ Buka **http://localhost:3100**, login menggunakan `ADMIN_EMAIL` dan `ADMIN_PASSW
 
 1. **Pelanggan** → tambah Residential, Business, atau Corporate; ID pelanggan numerik 10 digit dan ticket onboarding dibuat otomatis. Paket layanan pertama boleh dipilih saat pendaftaran.
 2. **Katalog Layanan** → tambah paket FTTH, Metro-E, VPN, Dedicated; tetapkan MRC dan OTC sebagai harga awal.
-3. **Ticketing / Work Order** → catat progres Open → Survey → Instalasi → Siap Aktivasi → Closed; tugaskan teknisi memakai Telegram User ID, dan lihat riwayat perubahan. Teknisi yang ditugaskan dapat mengubah status dari chat pribadi bot. Paket, prepaid/postpaid, MRC, OTC, dan cara invoice dapat diatur sebelum penutupan. Layanan tetap pending sampai ticket Closed. [Panduan setup Telegram dan n8n](automation/README.md).
+3. **Ticketing / Work Order** → catat progres Open → Survey → Instalasi → Siap Aktivasi → Closed; tugaskan teknisi memakai Telegram User ID, dan lihat riwayat perubahan. Teknisi yang ditugaskan dapat mengubah status dari chat pribadi bot. Paket, prepaid/postpaid, MRC, OTC, dan cara invoice dapat diatur sebelum penutupan. Layanan tetap pending sampai ticket Closed. [Panduan setup Telegram](automation/README.md).
 4. **Layanan Aktif** → tampilkan layanan yang sudah diaktivasi melalui ticketing. Layanan tambahan dibuat sebagai ticket baru. Service ID Metro Ethernet baru memakai awalan `ETH-`.
 5. **Billing & Invoices** → layanan dapat memilih invoice Manual atau Otomatis; FTTH baru default Otomatis. Invoice Manual dibuat dari tombol, sedangkan invoice Otomatis dicoba saat backend mulai dan setiap jam untuk periode berjalan. Jatuh tempo otomatis adalah tanggal 20 atau 7 hari sejak dibuat, mana yang lebih akhir. Pembayaran tetap dicatat manual.
 

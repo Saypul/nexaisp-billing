@@ -48,24 +48,6 @@ services:
       - work_order_photos:/app/uploads
     networks: [internal]
 
-  n8n:
-    image: n8nio/n8n:2.42.6
-    restart: unless-stopped
-    ports:
-      - "0.0.0.0:${N8N_PORT:-5679}:5678"
-    environment:
-      N8N_HOST: localhost
-      N8N_PORT: 5678
-      N8N_PROTOCOL: http
-      N8N_SECURE_COOKIE: "false"
-      N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS: "true"
-      N8N_DIAGNOSTICS_ENABLED: "false"
-      GENERIC_TIMEZONE: Asia/Jakarta
-      TZ: Asia/Jakarta
-    volumes:
-      - n8n_data:/home/node/.n8n
-    networks: [internal]
-
   frontend:
     build: ./frontend
     restart: unless-stopped
@@ -74,12 +56,36 @@ services:
     depends_on:
       backend:
         condition: service_healthy
-    networks: [internal]
+    networks: [internal, edge]
+
+  # HTTPS publik di port 443 (aktif bila BILLING_DOMAIN diisi di .env). IP tetap agar nginx frontend
+  # hanya mempercayai X-Forwarded-For dari Caddy (pembatas login per IP pengunjung asli).
+  caddy:
+    image: caddy:2.8.4-alpine
+    restart: unless-stopped
+    ports:
+      - "0.0.0.0:443:443"
+    environment:
+      BILLING_DOMAIN: ${BILLING_DOMAIN:?Isi BILLING_DOMAIN di .env}
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on: [frontend]
+    networks:
+      edge:
+        ipv4_address: 172.30.250.6
 
 volumes:
   postgres_data:
-  n8n_data:
   work_order_photos:
+  caddy_data:
+  caddy_config:
 networks:
   internal:
     driver: bridge
+  edge:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.30.250.0/29

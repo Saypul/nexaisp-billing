@@ -2,5 +2,6 @@ node_modules/
 android/
 dist/
 capacitor.config.json
+www/config.js
 # Kunci penandatangan APK: simpan cadangannya di tempat aman, JANGAN di Git.
 keystore/
